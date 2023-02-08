@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "scala",
+            "request": "launch",
+            "name": "IDeSyDe sobel test",
+            "mainClass": "idesyde.IDeSyDeStandalone",
+            "args": [
+                "-v", "DEBUG",
+                "-o", "C:\\Users\\u087044\\Documents\\IDeSyDe\\test\\solved.fiodl",
+                "C:\\Users\\u087044\\Documents\\IDeSyDe\\test\\complete-merged-model.fiodl",
+//                "C:\\Users\\u087044\\Documents\\IDeSyDe\\test\\sobel-application.fiodl",
+//                "C:\\Users\\u087044\\Documents\\IDeSyDe\\test\\platform-model.fiodl"
+            ],
+            "jvmOptions": []
+        }
+    ]
+}
