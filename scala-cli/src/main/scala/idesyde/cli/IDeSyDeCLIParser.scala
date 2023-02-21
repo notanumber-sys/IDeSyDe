@@ -59,5 +59,14 @@ class IDeSyDeCLIParser extends scopt.OptionParser[IDeSyDeRunConfig]("idesyde"):
         .action((v, x) => x.copy(explorationTimeOutInSecs =  v))
         .text("Sets the maximum number of times the exploration can last. If the number is non-positive, there is not timeout. Default is 0.")
 
+    opt[Long]("time-multiplier")
+        .valueName("<timeMultiplier>")
+        .action((v, x) => x.copy(timeMultiplier = Some(v)))
+        .text("Specifies a scaling before integer discretization on all time parameters. Default is dynamic behaviour.")
+
+    opt[Long]("memory-divider")
+        .valueName("<memoryDivider>")
+        .action((v, x) => x.copy(memoryDivider = Some(v)))
+        .text("Specifies a scaling before memory discretization on all memory parameters. Default is dynamic behavior.")
 
 end IDeSyDeCLIParser

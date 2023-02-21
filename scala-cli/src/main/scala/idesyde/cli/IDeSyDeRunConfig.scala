@@ -21,7 +21,9 @@ case class IDeSyDeRunConfig(
     var outputModelPath: Path = Paths.get("idesyde-out.fiodl"),
     var allowedDecisionModels: Buffer[String] = Buffer(),
     var solutionLimiter: Int = 0,
-    val explorationTimeOutInSecs: Long = 0L,
+    var explorationTimeOutInSecs: Long = 0L,
+    var timeMultiplier: Option[Long] = None,
+    val memoryDivider: Option[Long] = None,
     val debugLogger: (String) => Unit = (s) => {},
     val infoLogger: (String) => Unit = (s) => {},
     val warnLogger: (String) => Unit = (s) => {},
@@ -36,6 +38,9 @@ case class IDeSyDeRunConfig(
     .registerIdentificationRule(ChocoIdentificationModule())
     .registerIdentificationRule(ForSyDeIdentificationModule())
     .registerIdentificationRule(MinizincIdentificationModule())
+
+  var timeMult = timeMultiplier
+  var memoryDiv = memoryDivider
 
   def run(): Unit =
     val modelHandler = ForSyDeModelHandler()
