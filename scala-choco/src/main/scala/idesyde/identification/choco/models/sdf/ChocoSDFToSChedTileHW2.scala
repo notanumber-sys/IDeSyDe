@@ -78,14 +78,14 @@ final case class ChocoSDFToSChedTileHW2(
     timeValues
       .map(t => t * (timeMultiplier))
       .exists(d =>
-        d.numerator <= d.denominator / 1000L
+        d.numerator <= d.denominator / 1024L
       ) // ensure that the numbers magnitudes still stay sane
     &&
     timeValues
       .map(t => t * (timeMultiplier))
-      .sum < Int.MaxValue / 1000 - 1
+      .sum < Int.MaxValue / 1024 - 1
   ) {
-    timeMultiplier *= 10
+    timeMultiplier *= 2
   }
 
   // do the same for memory numbers
@@ -93,8 +93,8 @@ final case class ChocoSDFToSChedTileHW2(
     dse.sdfApplications.messagesMaxSizes ++
     dse.sdfApplications.processSizes
   var memoryDivider = 1L
-  while (memoryValues.forall(_ / memoryDivider >= 100) && memoryDivider < Int.MaxValue) {
-    memoryDivider *= 10L
+  while (memoryValues.forall(_ / memoryDivider >= 128) && memoryDivider < Int.MaxValue) {
+    memoryDivider *= 2L
   }
   // scribe.debug(timeMultiplier.toString)
 
