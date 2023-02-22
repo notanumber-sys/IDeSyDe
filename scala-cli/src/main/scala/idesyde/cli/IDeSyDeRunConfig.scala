@@ -16,13 +16,15 @@ import idesyde.identification.forsyde.api.ForSyDeIdentificationModule
 import idesyde.identification.minizinc.api.MinizincIdentificationModule
 import idesyde.identification.DecisionModel
 
+import idesyde.identification.choco.models.sdf.ChocoSDFToSChedTileHW2
+
 case class IDeSyDeRunConfig(
     var inputModelsPaths: Buffer[Path] = Buffer.empty,
     var outputModelPath: Path = Paths.get("idesyde-out.fiodl"),
     var allowedDecisionModels: Buffer[String] = Buffer(),
     var solutionLimiter: Int = 0,
     var explorationTimeOutInSecs: Long = 0L,
-    var timeMultiplier: Option[Long] = None,
+    val timeMultiplier: Option[Long] = None,
     val memoryDivider: Option[Long] = None,
     val debugLogger: (String) => Unit = (s) => {},
     val infoLogger: (String) => Unit = (s) => {},
@@ -39,10 +41,11 @@ case class IDeSyDeRunConfig(
     .registerIdentificationRule(ForSyDeIdentificationModule())
     .registerIdentificationRule(MinizincIdentificationModule())
 
-  var timeMult = timeMultiplier
-  var memoryDiv = memoryDivider
-
   def run(): Unit =
+    // registers discretization procedure
+    if timeMultiplier.isDefined || memoryDivider.isDefined then
+      ChocoSDFToSChedTileHW2.setDiscretization(timeMultiplier, memoryDivider)
+
     val modelHandler = ForSyDeModelHandler()
     val validInputs =
       inputModelsPaths.map(f => (f, modelHandler.canLoadModel(f)))
@@ -105,5 +108,4 @@ case class IDeSyDeRunConfig(
           infoLogger(s"Finished exploration with no solution")
       //scribe.info("Finished successfully")
     }
-
 }

@@ -74,28 +74,34 @@ final case class ChocoSDFToSChedTileHW2(
   val timeValues =
     (dse.wcets.flatten ++ dse.platform.tiledDigitalHardware.maxTraversalTimePerBitPerRouter)
   var timeMultiplier = 1L
-  while (
-    timeValues
-      .map(t => t * (timeMultiplier))
-      .exists(d =>
-        d.numerator <= d.denominator / 1024L
-      ) // ensure that the numbers magnitudes still stay sane
-    &&
-    timeValues
-      .map(t => t * (timeMultiplier))
-      .sum < Int.MaxValue / 1024 - 1
-  ) {
-    timeMultiplier *= 2
-  }
+  ChocoSDFToSChedTileHW2.fixedTimeMultiplier match
+    case Some(ftm) => {timeMultiplier = ftm}
+    case None => while (
+      timeValues
+        .map(t => t * (timeMultiplier))
+        .exists(d =>
+          d.numerator <= d.denominator / 1024L
+        ) // ensure that the numbers magnitudes still stay sane
+      &&
+      timeValues
+        .map(t => t * (timeMultiplier))
+        .sum < Int.MaxValue / 1024 - 1
+    ) {
+      timeMultiplier *= 2
+    }
 
   // do the same for memory numbers
   val memoryValues = dse.platform.tiledDigitalHardware.memories.map(_.getSpaceInBits().toLong) ++
     dse.sdfApplications.messagesMaxSizes ++
     dse.sdfApplications.processSizes
   var memoryDivider = 1L
-  while (memoryValues.forall(_ / memoryDivider >= 128) && memoryDivider < Int.MaxValue) {
-    memoryDivider *= 2L
-  }
+  ChocoSDFToSChedTileHW2.fixedMemoryDivider match
+    case Some(fmd) => {memoryDivider = fmd}
+    case None => while (
+      memoryValues.forall(_ / memoryDivider >= 128) && memoryDivider < Int.MaxValue
+    ) {
+      memoryDivider *= 2L
+    }
   // scribe.debug(timeMultiplier.toString)
 
   val memoryMappingModule = SingleProcessSingleMessageMemoryConstraintsModule(
@@ -520,6 +526,16 @@ final case class ChocoSDFToSChedTileHW2(
 }
 
 object ChocoSDFToSChedTileHW2 {
+  var fixedTimeMultiplier: Option[Long] = None
+  var fixedMemoryDivider: Option[Long] = None
+
+  def setDiscretization(
+      timeMultiplier: Option[Long],
+      memoryDivider: Option[Long]
+  ): Unit =
+    fixedTimeMultiplier = timeMultiplier
+    fixedMemoryDivider = memoryDivider
+    scribe.info(s"Set Discretization to timeMultiplier=${timeMultiplier}, memoryDivider=${memoryDivider}")
 
   def identifyFromAny(
       model: Any,
