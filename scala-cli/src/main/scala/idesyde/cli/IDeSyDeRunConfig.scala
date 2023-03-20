@@ -15,7 +15,7 @@ import idesyde.identification.CanIdentify
 import idesyde.exploration.ExplorationModule
 import idesyde.identification.IdentificationModule
 
-import idesyde.identification.choco.models.sdf.ChocoSDFToSChedTileHW2
+import idesyde.identification.choco.models.mixed.ChocoSDFToSChedTileHW2
 
 case class IDeSyDeRunConfig(
     val identificationModules: Set[IdentificationModule],

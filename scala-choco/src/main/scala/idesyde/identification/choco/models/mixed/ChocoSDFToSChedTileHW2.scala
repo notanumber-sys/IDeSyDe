@@ -557,7 +557,7 @@ object ChocoSDFToSChedTileHW2 {
   ): Unit =
     fixedTimeMultiplier = timeMultiplier
     fixedMemoryDivider = memoryDivider
-    scribe.info(s"Set Discretization to timeMultiplier=${timeMultiplier}, memoryDivider=${memoryDivider}")
+    //scribe.info(s"Set Discretization to timeMultiplier=${timeMultiplier}, memoryDivider=${memoryDivider}")
 }
 
 
