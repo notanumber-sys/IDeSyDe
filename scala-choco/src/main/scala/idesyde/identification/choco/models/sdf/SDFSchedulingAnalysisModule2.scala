@@ -11,7 +11,7 @@ import scala.collection.mutable.HashMap
 import org.chocosolver.solver.constraints.Constraint
 import org.chocosolver.solver.exception.ContradictionException
 import org.chocosolver.solver.constraints.`extension`.Tuples
-import idesyde.utils.CoreUtils.wfor
+import idesyde.utils.HasUtils
 import org.chocosolver.solver.Model
 import idesyde.identification.choco.models.SingleProcessSingleMessageMemoryConstraintsModule
 import idesyde.identification.choco.models.TileAsyncInterconnectCommsModule
@@ -24,7 +24,7 @@ class SDFSchedulingAnalysisModule2(
     val memoryMappingModule: SingleProcessSingleMessageMemoryConstraintsModule,
     val tileAsyncModule: TileAsyncInterconnectCommsModule,
     val timeFactor: Long = 1L
-) extends ChocoModelMixin() {
+) extends ChocoModelMixin() with HasUtils {
 
   private val actors = sdfAndSchedulers.sdfApplications.actorsIdentifiers
   val jobsAndActors =
@@ -60,37 +60,6 @@ class SDFSchedulingAnalysisModule2(
     )
     .toArray
 
-  // val maxPath =
-  //   chocoModel.intVarMatrix("maxPath", jobsAndActors.size, jobsAndActors.size, 0, maxLength)
-
-  // schedulers
-  // .map(s =>
-  //   jobsAndActors
-  //     .map((aa, qq) =>
-  //       chocoModel.intVar(
-  //         s"maxPath($s, $aa, $qq)",
-  //         0,
-  //         maxLength,
-  //         true
-  //       )
-  //     )
-  //     .toArray
-  // )
-  // .toArray
-
-  // val jobCycleLength =
-  //   jobsAndActors
-  //     .map((a, q) =>
-  //       val i = actors.indexOf(a)
-  //       chocoModel.intVar(
-  //         s"jobCycleLength($a, $q)",
-  //         0,
-  //         maxThroughput,
-  //         true
-  //       )
-  //     )
-  //     .toArray
-
   val jobOrder =
     jobsAndActors
       .map((a, q) =>
@@ -115,7 +84,7 @@ class SDFSchedulingAnalysisModule2(
     .map((a, i) =>
       chocoModel.intVar(
         s"dur($a)",
-        actorDuration(i).toArray
+        actorDuration(i).filter(_ > 0).toArray
       )
     )
     .toArray
@@ -166,15 +135,19 @@ class SDFSchedulingAnalysisModule2(
     chocoModel.count(0, jobOrder, numMappedElements).post()
     // --- general duration constraints
     for ((a, i) <- actors.zipWithIndex; (p, j) <- schedulers.zipWithIndex) {
-      chocoModel.ifThen(
-        chocoModel.arithm(memoryMappingModule.processesMemoryMapping(i), "=", j),
-        chocoModel.arithm(duration(i), "=", actorDuration(i)(j))
-      )
-      for ((job, k) <- jobsAndActors.zipWithIndex; if job._1 == a) {
+      if (actorDuration(i)(j) < 0) {
+        chocoModel.arithm(memoryMappingModule.processesMemoryMapping(i), "!=", j).post()
+      } else {
         chocoModel.ifThen(
           chocoModel.arithm(memoryMappingModule.processesMemoryMapping(i), "=", j),
-          chocoModel.arithm(jobOrder(k), "<", mappedJobsPerElement(j))
+          chocoModel.arithm(duration(i), "=", actorDuration(i)(j))
         )
+        for ((job, k) <- jobsAndActors.zipWithIndex; if job._1 == a) {
+          chocoModel.ifThen(
+            chocoModel.arithm(memoryMappingModule.processesMemoryMapping(i), "=", j),
+            chocoModel.arithm(jobOrder(k), "<", mappedJobsPerElement(j))
+          )
+        }
       }
     }
     // -------------- next and ordering parts

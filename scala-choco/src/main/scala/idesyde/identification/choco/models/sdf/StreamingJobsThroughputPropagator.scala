@@ -8,7 +8,7 @@ import org.chocosolver.solver.constraints.Propagator
 import org.chocosolver.solver.constraints.PropagatorPriority
 import org.chocosolver.util.ESat
 
-import idesyde.utils.CoreUtils.wfor
+import idesyde.utils.HasUtils
 import scala.annotation.tailrec
 import org.chocosolver.util.objects.graphs.DirectedGraph
 import org.jgrapht.graph.SimpleDirectedGraph
@@ -32,14 +32,14 @@ class StreamingJobsThroughputPropagator(
       jobOrdering.toArray ++ jobMapping.toArray ++ edgeWeight.flatten.toArray ++ jobWeight.toArray,
       PropagatorPriority.CUBIC,
       false
-    ) {
+    )
+    with HasUtils {
 
   val minimumDistanceMatrix = Buffer.fill(nJobs)(0)
   // val maximumDistanceMatrix = Buffer.fill(nJobs)(Buffer.fill(nJobs)(0))
   var dfsStack = new Stack[Int](initialSize = nJobs)
-  val visited = Buffer.fill(nJobs)(false)
+  val visited  = Buffer.fill(nJobs)(false)
   val previous = Buffer.fill(nJobs)(-1)
-
 
   /** This function checks if jib i can be succeed by j, based on the original precedences and the
     * mapping + ordering ones.
@@ -79,7 +79,7 @@ class StreamingJobsThroughputPropagator(
     hasDataCycle(i)(j) ||
       (jobMapping(i).isInstantiated() && jobMapping(j).isInstantiated() && jobMapping(i)
         .getValue() == jobMapping(j).getValue() && jobOrdering(j)
-        .getUB() == 0 &&  jobOrdering(i).getLB() > 0)
+        .getUB() == 0 && jobOrdering(i).getLB() > 0)
 
   def canCycle(i: Int)(j: Int): Boolean =
     jobMapping(i).stream().anyMatch(jobMapping(j).contains(_)) && jobOrdering(i)
@@ -95,13 +95,23 @@ class StreamingJobsThroughputPropagator(
     count
   }
 
+  private final def minCommTimes(i: Int)(j: Int): Int = if (
+    jobMapping(i).isInstantiated() && jobMapping(j)
+      .isInstantiated() && jobMapping(i)
+      .getValue() == jobMapping(j).getValue()
+  ) {
+    0
+  } else {
+    edgeWeight(i)(j).getLB()
+  }
+
   def propagate(evtmask: Int): Unit = {
     // println(getModel().getSolver().getDecisionPath().toString())
     wfor(0, _ < nJobs, _ + 1) { src =>
       // this is used instead of popAll in the hopes that no list is allocated
       while (!dfsStack.isEmpty) dfsStack.pop()
-      wfor(0, _ < nJobs, _ + 1) { j => 
-        visited(j) = false 
+      wfor(0, _ < nJobs, _ + 1) { j =>
+        visited(j) = false
         previous(j) = -1
         minimumDistanceMatrix(j) = Int.MinValue
       }
@@ -112,21 +122,27 @@ class StreamingJobsThroughputPropagator(
           visited(i) = true
           wfor(0, _ < nJobs, _ + 1) { j =>
             if (mustSuceed(i)(j) || mustCycle(i)(j)) { // adjacents
-              if (j == src) { // found a cycle
-                minimumDistanceMatrix(i)= jobWeight(i).getLB() + edgeWeight(i)(src).getLB()
+              if (j == src) {                          // found a cycle
+                minimumDistanceMatrix(i) = jobWeight(i).getLB() + minCommTimes(i)(j)
                 var k = i
                 // go backwards until the src
-                while(k != src) {
+                while (k != src) {
                   val kprev = previous(k)
-                  minimumDistanceMatrix(kprev)= Math.max(minimumDistanceMatrix(kprev), jobWeight(kprev).getLB() + edgeWeight(kprev)(k).getLB() + minimumDistanceMatrix(k))
+                  minimumDistanceMatrix(kprev) = Math.max(
+                    minimumDistanceMatrix(kprev),
+                    jobWeight(kprev).getLB() + minCommTimes(kprev)(k) + minimumDistanceMatrix(k)
+                  )
                   k = kprev
                 }
-              } else if (visited(j) && minimumDistanceMatrix(j)> Int.MinValue) { // found a previous cycle
+              } else if (visited(j) && minimumDistanceMatrix(j) > Int.MinValue) { // found a previous cycle
                 var k = j
                 // go backwards until the src
-                while(k != src) {
+                while (k != src) {
                   val kprev = previous(k)
-                  minimumDistanceMatrix(kprev) = Math.max(minimumDistanceMatrix(kprev), jobWeight(kprev).getLB() + edgeWeight(kprev)(k).getLB() + minimumDistanceMatrix(k))
+                  minimumDistanceMatrix(kprev) = Math.max(
+                    minimumDistanceMatrix(kprev),
+                    jobWeight(kprev).getLB() + minCommTimes(kprev)(k) + minimumDistanceMatrix(k)
+                  )
                   k = kprev
                 }
               } else if (!visited(j)) {
