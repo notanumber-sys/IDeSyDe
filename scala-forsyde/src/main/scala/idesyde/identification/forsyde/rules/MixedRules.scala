@@ -1,7 +1,7 @@
 package idesyde.identification.forsyde.rules
 
-import idesyde.identification.DesignModel
-import idesyde.identification.DecisionModel
+import idesyde.core.DesignModel
+import idesyde.core.DecisionModel
 import idesyde.identification.forsyde.ForSyDeDesignModel
 import idesyde.identification.common.models.mixed.PeriodicWorkloadToPartitionedSharedMultiCore
 import idesyde.identification.common.models.mixed.SDFToTiledMultiCore
@@ -197,7 +197,7 @@ object MixedRules {
             // add the throughputs for good measure
             for (
               (a, ai) <- dse.sdfApplications.actorsIdentifiers.zipWithIndex;
-              th = dse.sdfApplications.actorThrouhgputs(ai)
+              th = dse.sdfApplications.minimumActorThrouhgputs(ai)
             ) {
               newModel
                 .queryVertex(a)

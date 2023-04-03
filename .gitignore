@@ -242,3 +242,21 @@ scala-tests/models/sdf3/results/*
 
 *~
 *#
+
+
+# Created by https://www.toptal.com/developers/gitignore/api/pants
+# Edit at https://www.toptal.com/developers/gitignore?templates=pants
+
+### Pants ###
+# Pants workspace files
+/.pants.*
+/dist/
+/.pids
+
+# End of https://www.toptal.com/developers/gitignore/api/pants
+
+run/
+# these files must be forcefully added to the repo. This will stop anyone from doing
+# the famous `git add .` which destroys the pristine nature of any repo.
+**.kgt
+**.fiodl

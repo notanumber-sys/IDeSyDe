@@ -1,19 +1,24 @@
 package idesyde.cli
 
-import java.nio.file.Path
-import java.nio.file.Paths
 import scala.collection.mutable.Buffer
 import forsyde.io.java.drivers.ForSyDeModelHandler
 import forsyde.io.java.core.ForSyDeSystemGraph
 import scala.concurrent.ExecutionContext
 import idesyde.identification.forsyde.ForSyDeDesignModel
-import idesyde.identification.DecisionModel
+import idesyde.core.DecisionModel
 import idesyde.utils.SimpleStandardIOLogger
 import idesyde.utils.Logger
 import idesyde.exploration.CanExplore
 import idesyde.identification.CanIdentify
 import idesyde.exploration.ExplorationModule
 import idesyde.identification.IdentificationModule
+import upickle.default.*
+import idesyde.core.ParametricDecisionModel
+import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.Base64
+import java.nio.file.Path
+import java.nio.file.Paths
 
 import idesyde.identification.choco.models.mixed.ChocoSDFToSChedTileHW2
 
@@ -36,6 +41,21 @@ case class IDeSyDeRunConfig(
     if timeMultiplier.isDefined || memoryDivider.isDefined then
       ChocoSDFToSChedTileHW2.setDiscretization(timeMultiplier, memoryDivider)
 
+    val sortedPaths   = inputModelsPaths.sortBy(_.toString())
+    val messageDigest = MessageDigest.getInstance("SHA-1")
+    messageDigest.reset()
+    val digested = messageDigest.digest(sortedPaths.flatMap(_.toString().map(_.toByte)).toArray)
+    val stringOfDigested = Base64.getEncoder().encodeToString(digested)
+    val runPath          = os.pwd / "run" / stringOfDigested
+    logger.info(s"Run folder: ${runPath.toString()}")
+    val exploredPath       = runPath / "explored"
+    val exploredPathJson   = exploredPath / "json"
+    val identifiedPath     = runPath / "identified"
+    val identifiedPathJson = identifiedPath / "json"
+    os.makeDir.all(exploredPath)
+    os.makeDir.all(exploredPathJson)
+    os.makeDir.all(identifiedPath)
+    os.makeDir.all(identifiedPathJson)
     val modelHandler = ForSyDeModelHandler()
     val validForSyDeInputs =
       inputModelsPaths.map(f => (f, modelHandler.canLoadModel(f)))
@@ -64,6 +84,22 @@ case class IDeSyDeRunConfig(
       val identified = identifyDecisionModels(Set(model), identificationModules)
       logger.info(s"Identification finished with ${identified.size} decision model(s).")
       if (identified.size > 0)
+        // save the identified models
+        for (model <- identified) {
+          Files.writeString(
+            (identifiedPathJson / s"${model.uniqueIdentifier}_header.json").toNIO,
+            model.header.asText
+          )
+          model match {
+            case parametric: ParametricDecisionModel[?] =>
+              Files.writeString(
+                (identifiedPathJson / s"${model.uniqueIdentifier}_body.json").toNIO,
+                parametric.bodyAsText
+              )
+            case _ =>
+          }
+        }
+        // now continue with flow
         val chosen = chooseExplorersAndModels(identified, explorationModules)
         val chosenFiltered =
           if (allowedDecisionModels.size > 0) then
@@ -82,26 +118,44 @@ case class IDeSyDeRunConfig(
           .map((explorer, decisionModel) =>
             explorer
               .explore(decisionModel, explorationTimeOutInSecs)
-              .flatMap(integrateDecisionModel(model, _, identificationModules))
-              .flatMap(result =>
-                result match {
-                  case fdm: ForSyDeDesignModel => Some(fdm.systemGraph)
+              .zipWithIndex
+              .map((decisionModel, num) => {
+                Files.writeString(
+                  (exploredPathJson / s"${num}_${decisionModel.uniqueIdentifier}_header.json").toNIO,
+                  decisionModel.header.asText
+                )
+                decisionModel match {
+                  case parametric: ParametricDecisionModel[?] =>
+                    Files.writeString(
+                      (exploredPathJson / s"${num}_${decisionModel.uniqueIdentifier}_body.json").toNIO,
+                      parametric.bodyAsText
+                    )
+                  case _ =>
+                }
+                (decisionModel, num)
+              })
+              .flatMap((m, res) =>
+                integrateDecisionModel(model, m, identificationModules).map((_, res))
+              )
+              .flatMap((m, res) =>
+                m match {
+                  case fdm: ForSyDeDesignModel => Some((fdm.systemGraph, res))
                   case _                       => Option.empty
                 }
               )
-              .scanLeft(0)((res, result) => {
+              .map((m, res) => {
                 if (!outputModelPath.toFile.exists || outputModelPath.toFile.isFile) then
                   logger.debug(s"writing solution at ${outputModelPath.toString}")
-                  modelHandler.writeModel(model.systemGraph.merge(result), outputModelPath)
+                  modelHandler.writeModel(model.systemGraph.merge(m), outputModelPath)
                 else if (outputModelPath.toFile.exists && outputModelPath.toFile.isDirectory) then
                   val outPath =
                     outputModelPath.resolve(Paths.get(s"solution_${res.toString}.fiodl"))
                   logger.debug(s"writing solution at ${outPath.toString}")
                   modelHandler.writeModel(
-                    model.systemGraph.merge(result),
+                    model.systemGraph.merge(m),
                     outputModelPath.resolve(Paths.get(s"solution_${res.toString}.fiodl"))
                   )
-                res + 1
+                res
               })
               .takeWhile(res =>
                 (solutionLimiter <= 0) || (solutionLimiter > 0 && res <= solutionLimiter)

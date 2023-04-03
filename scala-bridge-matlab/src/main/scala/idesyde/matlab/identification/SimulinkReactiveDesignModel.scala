@@ -1,6 +1,8 @@
 package idesyde.matlab.identification
 
-import idesyde.identification.DesignModel
+import idesyde.core.DesignModel
+import upickle.default.*
+import idesyde.core.headers.LabelledArcWithPorts
 
 /** A design model for a subset of all possible simulink models.
   *
@@ -14,28 +16,28 @@ final case class SimulinkReactiveDesignModel(
     val delaysSizes: Map[String, Long],
     val sources: Set[String],
     val sourcesSizes: Map[String, Long],
-    val sourcesPeriodsNumerator: Map[String, Long],
-    val sourcesPeriodsDenominator: Map[String, Long],
+    val sourcesPeriods: Map[String, Double],
     val constants: Set[String],
     val sinks: Set[String],
     val sinksSizes: Map[String, Long],
-    val sinksDeadlinesNumerator: Map[String, Long],
-    val sinksDeadlinesDenominator: Map[String, Long],
+    val sinksDeadlines: Map[String, Double],
     val processesOperations: Map[String, Map[String, Map[String, Long]]],
     val delaysOperations: Map[String, Map[String, Map[String, Long]]],
     val links: Set[(String, String, String, String, Long)]
-) extends DesignModel {
+) extends DesignModel
+    derives ReadWriter {
 
   type ElementT         = String
   type ElementRelationT = (String, String, String, String)
 
-  def elementID(elem: String): String                                  = elem
-  def elementRelationID(rel: (String, String, String, String)): String = rel.toString()
-  val elementRelations: collection.Set[(String, String, String, String)] =
+  def elementID(elem: String): String = elem
+  def elementRelationID(rel: (String, String, String, String)): LabelledArcWithPorts =
+    LabelledArcWithPorts(rel._1, Some(rel._2), None, rel._3, Some(rel._4))
+  val elementRelations: Set[(String, String, String, String)] =
     links.map((s, t, sp, tp, _) => (s, t, sp, tp))
-  val elements: collection.Set[String] =
+  val elements: Set[String] =
     (processes ++ delays ++ sources ++ constants ++ sinks).toSet
-  def merge(other: idesyde.identification.DesignModel): Option[idesyde.identification.DesignModel] =
+  def merge(other: idesyde.core.DesignModel): Option[idesyde.core.DesignModel] =
     other match {
       case SimulinkReactiveDesignModel(
             oprocesses,
@@ -44,13 +46,11 @@ final case class SimulinkReactiveDesignModel(
             odelaysSizes,
             osources,
             osourcesSizes,
-            osourcesPeriodsNumerator,
-            osourcesPeriodsDenominator,
+            osourcesPeriods,
             oconstants,
             osinks,
             osinksSizes,
-            osinksDeadlinesNumerator,
-            osinksDeadlinesDenominator,
+            osinksDeadlines,
             oprocessesOperations,
             odelaysOperations,
             olinks
@@ -63,13 +63,11 @@ final case class SimulinkReactiveDesignModel(
             delaysSizes ++ odelaysSizes,
             sources ++ osources,
             sourcesSizes ++ osourcesSizes,
-            sourcesPeriodsNumerator ++ osourcesPeriodsNumerator,
-            sourcesPeriodsDenominator ++ osourcesPeriodsDenominator,
+            sourcesPeriods ++ osourcesPeriods,
             constants ++ oconstants,
             sinks ++ osinks,
             sinksSizes ++ osinksSizes,
-            sinksDeadlinesNumerator ++ osinksDeadlinesNumerator,
-            sinksDeadlinesDenominator ++ osinksDeadlinesDenominator,
+            sinksDeadlines ++ osinksDeadlines,
             processesOperations ++ oprocessesOperations,
             delaysOperations ++ odelaysOperations,
             links ++ olinks
@@ -77,5 +75,7 @@ final case class SimulinkReactiveDesignModel(
         )
       case _ => None
     }
+
+  def uniqueIdentifier: String = "SimulinkReactiveDesignModel"
 
 }

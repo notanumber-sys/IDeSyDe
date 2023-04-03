@@ -5,7 +5,7 @@ import org.chocosolver.solver.Model
 import forsyde.io.java.core.Vertex
 import org.chocosolver.solver.Solution
 import forsyde.io.java.core.ForSyDeSystemGraph
-import idesyde.identification.DecisionModel
+import idesyde.core.DecisionModel
 import idesyde.identification.IdentificationResult
 import idesyde.identification.choco.models.ManyProcessManyMessageMemoryConstraintsMixin
 import org.chocosolver.solver.variables.BoolVar
@@ -31,6 +31,16 @@ import org.chocosolver.solver.objective.OptimizationPolicy
 import idesyde.utils.Logger
 import idesyde.identification.choco.models.sdf.SDFSchedulingAnalysisModule2
 import idesyde.identification.choco.models.sdf.CompactingMultiCoreMapping
+import scalax.collection.GraphEdge.DiEdge
+import idesyde.core.ParametricDecisionModel
+import idesyde.core.headers.DecisionModelHeader
+import idesyde.core.headers.LabelledArcWithPorts
+import org.jgrapht.graph.SimpleDirectedGraph
+import org.jgrapht.graph.DefaultEdge
+import org.jgrapht.alg.cycle.JohnsonSimpleCycles
+import org.jgrapht.graph.DefaultDirectedGraph
+import scala.collection.mutable.Stack
+import idesyde.utils.HasUtils
 
 final class ConMonitorObj2(val model: ChocoSDFToSChedTileHW2) extends IMonitorContradiction {
 
@@ -76,7 +86,7 @@ final case class ChocoSDFToSChedTileHW2(
     val dse: SDFToTiledMultiCore
 )(using logger: Logger)(using Fractional[Rational])
     extends StandardDecisionModel
-    with ChocoDecisionModel(shouldLearnSignedClauses = false) {
+    with ChocoDecisionModel(shouldLearnSignedClauses = false) with HasUtils {
 
   val chocoModel: Model = Model()
 
@@ -480,7 +490,7 @@ final case class ChocoSDFToSChedTileHW2(
 
   //---------
 
-  def rebuildFromChocoOutput(output: Solution): DecisionModel = {
+  def rebuildFromChocoOutput(output: Solution): Set[DecisionModel] = {
     logger.debug(
       s"solution: nUsedPEs = ${output.getIntVal(nUsedPEs)}, globalInvThroughput = ${output
         .getIntVal(sdfAnalysisModule.globalInvThroughput)} / $timeMultiplier"
@@ -489,10 +499,13 @@ final case class ChocoSDFToSChedTileHW2(
     // logger.debug(memoryMappingModule.processesMemoryMapping.mkString(", "))
     // logger.debug(sdfAnalysisModule.jobOrder.mkString(", "))
     // logger.debug(sdfAnalysisModule.invThroughputs.mkString(", "))
-    dse.copy(
-      sdfApplications = dse.sdfApplications.copy(actorThrouhgputs =
-        sdfAnalysisModule.invThroughputs
-          .map(timeMultiplier.toDouble / _.getValue().toDouble)
+    val full = dse.copy(
+      sdfApplications = dse.sdfApplications.copy(minimumActorThrouhgputs =
+        sdfAnalysisModule.invThroughputs.zipWithIndex
+          .map((th, i) =>
+            timeMultiplier.toDouble / (dse.sdfApplications
+              .sdfRepetitionVectors(i)  * th.getValue().toDouble)
+          )
           .toVector
       ),
       processMappings = dse.sdfApplications.actorsIdentifiers.zipWithIndex.map((a, i) =>
@@ -535,8 +548,126 @@ final case class ChocoSDFToSChedTileHW2(
               )
               .toVector
         iter.toMap
-      })
+      }),
+      actorThroughputs = recomputeTh(
+        sdfAnalysisModule.jobsAndActors.zipWithIndex
+          .map((j, x) => (dse.sdfApplications.actorsIdentifiers.indexOf(j._1), x))
+          .map((ax, i) => dse.wcets(ax)(memoryMappingModule.processesMemoryMapping(ax).getValue())),
+        sdfAnalysisModule.jobsAndActors
+          .map((srca, srcq) => 
+            sdfAnalysisModule.jobsAndActors
+              .map((dsta, dstq) => {
+                val srcax = dse.sdfApplications.actorsIdentifiers.indexOf(srca)
+                val dstax = dse.sdfApplications.actorsIdentifiers.indexOf(dsta)
+                val mSize = dse.sdfApplications.sdfMessages.find((s, t, _, _, _, _, _) => s == srca && t == dsta).map((_, _, _, m, _, _, _) => m).getOrElse(0L)
+                val srcM = memoryMappingModule.processesMemoryMapping(srcax).getValue()
+                val dstM = memoryMappingModule.processesMemoryMapping(dstax).getValue()
+                if (srcM != dstM) {
+                  mSize * dse.platform.hardware.minTraversalTimePerBit(srcM)(dstM) * dse.platform.hardware
+                    .computedPaths(srcM)(dstM)
+                    .map(ce => dse.platform.hardware.communicationElems.indexOf(ce))
+                    .map(cex =>
+                      tileAnalysisModule.numVirtualChannelsForProcElem(srcM)(cex).getValue()
+                    )
+                    .min
+                } else 0.0
+              })
+          )
+      )
     )
+    // we also return the SDF-only-view results
+    val withHeader = ParametricDecisionModel(
+      DecisionModelHeader(
+        body_paths = Set(),
+        category = full.uniqueIdentifier,
+        covered_elements = full.coveredElements,
+        covered_relations =
+          full.coveredElementRelations.map((s, t) => LabelledArcWithPorts(s, None, None, t, None))
+      ),
+      full
+    )
+    // return both
+    Set(full, withHeader)
+  }
+
+  private def recomputeTh(
+      jobWeights: Vector[Double],
+      edgeWeigths: Vector[Vector[Double]]
+  ): Vector[Double] = {
+    def jobMapping(i: Int) = sdfAnalysisModule.jobMapping(i)
+    def jobOrdering(i: Int) = sdfAnalysisModule.jobOrder(i)
+    def mustSuceed(i: Int)(j: Int): Boolean = if (
+      jobMapping(i).isInstantiated() && jobMapping(j)
+        .isInstantiated() && jobMapping(i)
+        .getValue() == jobMapping(j).getValue()
+    ) {
+      jobOrdering(i).stream().anyMatch(oi => jobOrdering(j).contains(oi + 1))
+    } else {
+      sdfAnalysisModule.isSuccessor(i)(j)
+    }
+    def mustCycle(i: Int)(j: Int): Boolean =
+      sdfAnalysisModule.hasDataCycle(i)(j) ||
+      (jobMapping(i).isInstantiated() && jobMapping(j).isInstantiated() && jobMapping(i)
+      .getValue() == jobMapping(j).getValue() && jobOrdering(j)
+      .getUB() == 0 && jobOrdering(i).getLB() > 0)
+    var ths  = Buffer.fill(dse.sdfApplications.actorsIdentifiers.size)(Double.PositiveInfinity)
+    val nJobs = sdfAnalysisModule.jobsAndActors.size
+    val minimumDistanceMatrix = Buffer.fill(nJobs)(0.0)
+    var dfsStack = new Stack[Int](initialSize = nJobs)
+    val visited  = Buffer.fill(nJobs)(false)
+    val previous = Buffer.fill(nJobs)(-1)
+    wfor(0, _ < nJobs, _ + 1) { src =>
+      // this is used instead of popAll in the hopes that no list is allocated
+      while (!dfsStack.isEmpty) dfsStack.pop()
+      wfor(0, _ < nJobs, _ + 1) { j =>
+        visited(j) = false
+        previous(j) = -1
+        minimumDistanceMatrix(j) = Double.NegativeInfinity
+      }
+      dfsStack.push(src)
+      while (!dfsStack.isEmpty) {
+        val i = dfsStack.pop()
+        if (!visited(i)) {
+          visited(i) = true
+          wfor(0, _ < nJobs, _ + 1) { j =>
+            if (mustSuceed(i)(j) || mustCycle(i)(j)) { // adjacents
+              if (j == src) {                          // found a cycle
+                minimumDistanceMatrix(i) = jobWeights(i) + edgeWeigths(i)(j)
+                var k = i
+                // go backwards until the src
+                while (k != src) {
+                  val kprev = previous(k)
+                  minimumDistanceMatrix(kprev) = Math.max(
+                    minimumDistanceMatrix(kprev),
+                    jobWeights(kprev) + edgeWeigths(kprev)(k) + minimumDistanceMatrix(k)
+                  )
+                  k = kprev
+                }
+              } else if (visited(j) && minimumDistanceMatrix(j) > Int.MinValue) { // found a previous cycle
+                var k = j
+                // go backwards until the src
+                while (k != src) {
+                  val kprev = previous(k)
+                  minimumDistanceMatrix(kprev) = Math.max(
+                    minimumDistanceMatrix(kprev),
+                    jobWeights(kprev) + edgeWeigths(kprev)(k) + minimumDistanceMatrix(k)
+                  )
+                  k = kprev
+                }
+              } else if (!visited(j)) {
+                dfsStack.push(j)
+                previous(j) = i
+              }
+            }
+          }
+        }
+      }
+      val (a, _) = sdfAnalysisModule.jobsAndActors(src)
+      val adx = dse.sdfApplications.actorsIdentifiers.indexOf(a)
+      val th = 1.0 / (dse.sdfApplications.sdfRepetitionVectors(adx) * minimumDistanceMatrix(src))
+      if (ths(adx) > th) ths(adx) = th
+    }
+    ths.toVector
   }
 
   def uniqueIdentifier: String = "ChocoSDFToSChedTileHW2"

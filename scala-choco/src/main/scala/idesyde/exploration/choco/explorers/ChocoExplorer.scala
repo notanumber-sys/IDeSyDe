@@ -11,7 +11,7 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.StreamConverters.*
 import org.chocosolver.solver.search.limits.SolutionCounter
 import org.chocosolver.solver.Solution
-import idesyde.identification.DecisionModel
+import idesyde.core.DecisionModel
 import scala.collection.mutable.Buffer
 import org.chocosolver.solver.constraints.Constraint
 import org.chocosolver.solver.variables.IntVar
@@ -161,7 +161,7 @@ class ChocoExplorer(using logger: Logger) extends Explorer:
           // scribe.debug(s"Current heap memory used: ${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} bytes")
           solver.defaultSolution()
         })
-        .map(paretoSolution => {
+        .flatMap(paretoSolution => {
           // println("obj " + chocoCpModel.modelMinimizationObjectives.map(o => paretoSolution.getIntVal(o)).mkString(", "))
           solvable.rebuildFromChocoOutput(paretoSolution)
         })

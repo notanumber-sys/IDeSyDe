@@ -1,8 +1,10 @@
-package idesyde.devicetree.identification
+package idesyde.devicetree
 
-import spire.math.Rational
 import scala.collection.mutable.Buffer
 import scala.collection.mutable
+
+import spire.math.Rational
+import org.virtuslab.yaml.*
 
 enum DeviceTreeLink {
   def label: String
@@ -34,6 +36,7 @@ sealed trait DeviceTreeComponent {
   def connected: Iterable[DeviceTreeLink]
   def connect(dst: DeviceTreeLink): Unit
   def properties: Iterable[DeviceTreeProperty]
+  def fullId: String = label.getOrElse(nodeName + label.map("@" + _).getOrElse(""))
 
   def allChildren: Iterable[DeviceTreeComponent] = children ++ children.flatMap(_.allChildren)
   def propertiesNames                            = properties.map(_.name)
@@ -85,6 +88,42 @@ final case class RootNode(
     case _             => None
   })
 
+  def mainBusFrequency: Long = properties
+    .flatMap(_ match {
+      case DeviceTreeProperty.U64Property("bus-frequency", prop) => Some(prop)
+      case DeviceTreeProperty.U32Property("bus-frequency", prop) => Some(prop.toLong)
+      case _                                                     => None
+    })
+    .headOption
+    .getOrElse(1L)
+
+  def mainBusConcurrency: Int = properties
+    .flatMap(_ match {
+      case DeviceTreeProperty.U64Property("bus-concurrency", prop) => Some(prop.toInt)
+      case DeviceTreeProperty.U32Property("bus-concurrency", prop) => Some(prop)
+      case _                                                       => None
+    })
+    .headOption
+    .getOrElse(1)
+
+  def mainBusFlitSize: Long = properties
+    .flatMap(_ match {
+      case DeviceTreeProperty.U64Property("bus-flit", prop) => Some(prop)
+      case DeviceTreeProperty.U32Property("bus-flit", prop) => Some(prop.toLong)
+      case _                                                => None
+    })
+    .headOption
+    .getOrElse(1L)
+
+  def mainBusClockPerFlit: Long = properties
+    .flatMap(_ match {
+      case DeviceTreeProperty.U64Property("bus-clock-per-flit", prop) => Some(prop)
+      case DeviceTreeProperty.U32Property("bus-clock-per-flit", prop) => Some(prop.toLong)
+      case _                                                          => None
+    })
+    .headOption
+    .getOrElse(1L)
+
   def linked: RootNode = {
     for (
       src <- allChildren;
@@ -106,6 +145,17 @@ final case class CPUNode(
     var connected: Buffer[DeviceTreeLink]
 ) extends DeviceTreeComponent
     with HasDefaultConnect {
+
+  def frequency: Long = properties
+    .flatMap(prop =>
+      prop match {
+        case DeviceTreeProperty.U64Property("clock-frequency", prop) => Some(prop)
+        case DeviceTreeProperty.U32Property("clock-frequency", prop) => Some(prop.toLong)
+        case _                                                       => None
+      }
+    )
+    .headOption
+    .getOrElse(1L)
 
   def operationsProvided: Map[String, Map[String, Rational]] = children
     .flatMap(_ match {
@@ -170,3 +220,26 @@ final case class GenericNode(
     var connected: Buffer[DeviceTreeLink]
 ) extends DeviceTreeComponent
     with HasDefaultConnect {}
+
+case class OSIsland(
+    val name: String,
+    val host: String,
+    val affinity: List[String],
+    val policy: List[String]
+) derives YamlCodec
+
+case class OSDescription(
+    val oses: Map[String, OSIsland]
+) derives YamlCodec {
+
+  /** Return a new merged OSDescription
+    *
+    * @param o
+    *   other OSDescription to be merged
+    * @return
+    *   the merge result, prioritizing left-most data (`this`)
+    */
+  def mergeLeft(right: OSDescription): OSDescription = OSDescription(
+    oses ++ right.oses.filterNot((k, _) => oses.contains(k))
+  )
+}
